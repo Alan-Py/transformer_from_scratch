@@ -1,0 +1,12 @@
+/dictionary
+/preprocess/bpe.codes
+/preprocess/train.de
+/preprocess/train.en
+/preprocess/train.en.bpe
+/preprocess/train.de.bpe
+/preprocess/train.txt
+/dataset/wmt14_translate_de-en_test.csv
+/dataset/wmt14_translate_de-en_train.csv
+/dataset/wmt14_translate_de-en_validation.csv
+/dataset/wmt14_translate_de-en_train.csv.zip
+/dataset/wmt14_translate_de-en_train_fixed.csv
