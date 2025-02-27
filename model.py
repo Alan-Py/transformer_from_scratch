@@ -34,6 +34,8 @@ class PositionEmbeddings(nn.Module):
         self.register_buffer('pe',pe)
     def forward(self,embed_vec):
         pe = self.pe[:,:embed_vec.size()[1]]
+        # print(pe.shape)
+        # print(embed_vec.shape)
         return embed_vec + pe
 class MultiHeadAttention(nn.Module):
     def __init__(self, d_model=512,n_head=8, dropout_rate=0.1) -> None:
@@ -201,6 +203,7 @@ class Transformers(nn.Module):
     
     def encode(self,src_token_id,src_mask):
         embed = self.src_embedding(src_token_id)
+        # print("embed",embed.shape)
         pe_out = self.src_pe(embed)
         encoder_out = self.encoder_block(pe_out,src_mask)
         return encoder_out
