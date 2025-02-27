@@ -10,7 +10,7 @@ def clones(module, N):
 
 class Embeddings(nn.Module):
     def __init__(self,vocab_size,dmodel=512) -> None:
-        super().__init__()
+        super(Embeddings,self).__init__()
         self.vocab_size = vocab_size
         self.dmodel = dmodel
         self.embed_layer = nn.Embedding(self.vocab_size,self.dmodel)
@@ -20,8 +20,8 @@ class Embeddings(nn.Module):
         # print(embedout)
         return embedout * math.sqrt(self.dmodel)
 class PositionEmbeddings(nn.Module):
-    def __init__(self,max_seq_len,dropout,d_model=512) -> None:
-        super().__init__()
+    def __init__(self,max_seq_len,d_model=512) -> None:
+        super(PositionEmbeddings,self).__init__()
         self.d_model = d_model
         self.max_seq_len = max_seq_len
         pos = torch.arange(0, max_seq_len,dtype = torch.float).unsqueeze(1)
@@ -35,27 +35,6 @@ class PositionEmbeddings(nn.Module):
     def forward(self,embed_vec):
         pe = self.pe[:,:embed_vec.size()[1]]
         return embed_vec + pe
-# 计算注意力分数
-def attention(q,k,v,mask=None,dropout=None):
-    # calculate attenction score
-    # query = (BS,NH,S/T,HD) , key.transpose(-2,-1) = (BS,NH,HD,S/T) 
-    # BS（Batch Size）：批次大小
-    # NH（Num Heads）：注意力头数
-    # S/T（Sequence Length / Time Steps）：序列长度
-    # S（Source Length）：Encoder 侧的序列长度（输入序列的长度）
-    # T（Target Length）：Decoder 侧的序列长度（输出序列的长度）
-    # HD（Head Dimension）：每个注意力头的维度
-    # attention score size for encoder attention = (BS,NH,S,S) , decoder attention = (BS,NH,T,T), encoder-decoder attention = (BS,NH,T,S)
-    d_k = q.size(-1)
-    # (BS, NH, Query序列长度, Key序列长度)
-    attention_score = (q @ k.transpose(-2, -1)) / math.sqrt(d_k)
-    if mask is not None:
-        attention_score = attention_score.masked_fill(mask == 0, -1e9)
-    p_attn = attention_score.softmax(dim=-1)
-    if dropout is not None:
-        p_attn = dropout(p_attn)
-    score = p_attn@v
-    return score,attention_score
 class MultiHeadAttention(nn.Module):
     def __init__(self, d_model=512,n_head=8, dropout_rate=0.1) -> None:
         super().__init__()
@@ -66,10 +45,31 @@ class MultiHeadAttention(nn.Module):
         self.head = n_head
         self.d_model = d_model
         # qkv and output
+        self.softmax_layer = nn.Softmax(dim=-1)
         self.w_key = nn.Linear(d_model,d_model)
         self.w_query = nn.Linear(d_model,d_model)
         self.w_value = nn.Linear(d_model,d_model)
         self.output_project = nn.Linear(d_model,d_model)
+    # 计算注意力分数
+    def attention(self,q,k,v,mask=None,dropout=None):
+        # calculate attenction score
+        # query = (BS,NH,S/T,HD) , key.transpose(-2,-1) = (BS,NH,HD,S/T) 
+        # BS（Batch Size）：批次大小
+        # NH（Num Heads）：注意力头数
+        # S/T（Sequence Length / Time Steps）：序列长度
+        # S（Source Length）：Encoder 侧的序列长度（输入序列的长度）
+        # T（Target Length）：Decoder 侧的序列长度（输出序列的长度）
+        # HD（Head Dimension）：每个注意力头的维度
+        # attention score size for encoder attention = (BS,NH,S,S) , decoder attention = (BS,NH,T,T), encoder-decoder attention = (BS,NH,T,S)
+        # (BS, NH, Query序列长度, Key序列长度)
+        attention_score = (q @ k.transpose(-2, -1)) / math.sqrt(self.d_k)
+        if mask is not None:
+            attention_score = attention_score.masked_fill(mask==torch.tensor(False),float("-inf"))
+        attention_weight = self.softmax_layer(attention_score)
+        if dropout is not None:
+            attention_weigth = dropout(attention_weight)
+        score = attention_weight@v
+        return score
     def forward(self,q,k,v,mask=None):
         B = k.shape[0]
         key, query, value = self.w_key(k), self.w_query(q), self.w_value(v)
@@ -79,7 +79,7 @@ class MultiHeadAttention(nn.Module):
         query = query.view(B,-1,self.head,self.d_k).transpose(1,2)
         value = value.view(B,-1,self.head,self.d_k).transpose(1,2)
         
-        attention_score,_ = attention(query,key,value,mask,dropout=self.dropout)
+        attention_score =self.attention(query,key,value,mask,dropout=self.dropout)
         
         attention_score = attention_score.transpose(1,2)
         attention_score = attention_score.reshape(B,-1,self.d_model)
@@ -93,7 +93,6 @@ class PositionwiseFeedForward(nn.Module):
     def __init__(self, d_model=512,hidden_dim=2048,dropout_rate = 0.1):
         super().__init__()
         self.d_model = d_model
-        self.hidden_dim = hidden_dim
         self.dropout = nn.Dropout(p=dropout_rate)
         self.fc1 = nn.Linear(d_model,hidden_dim)
         self.relu = nn.ReLU()
@@ -104,15 +103,9 @@ class PositionwiseFeedForward(nn.Module):
 class SubLayerConnection(nn.Module):
     def __init__(self,d_model,dropout):
         super().__init__()
-        self.d_model = d_model
+        self.dropout = nn.Dropout(p=dropout)
         self.norm = nn.LayerNorm(d_model)
-        self.dropout = nn.Dropout(dropout)
     def forward(self,x,out_x):
-        if not isinstance(x, torch.Tensor):
-            raise TypeError(f"Expected x to be a Tensor, but got {type(x)}")
-        if not isinstance(out_x, torch.Tensor):
-            raise TypeError(f"Expected out_x to be a Tensor, but got {type(out_x)}")
-
         return self.norm(x + self.dropout(out_x))
         
 # sublayer for encoder
@@ -120,27 +113,28 @@ class EncoderLayer(nn.Module):
     def __init__(self,multi_head_attention,Position_wise_FeedForward,d_model=512,dropout_rate = 0.1) ->None:
         super().__init__()
         self.d_model = d_model
-        self.muti_head_attention = multi_head_attention
+        self.multi_head_attention = multi_head_attention
         self.position_wise_FeedForward = Position_wise_FeedForward
         self.subLayer1 = SubLayerConnection(d_model,dropout_rate)
         self.sublayer2 = SubLayerConnection(d_model,dropout_rate)
-    def forward(self,x,mask=None):
-        
-        atten_out = self.subLayer1(x,self.muti_head_attention(x, x, x, mask))
+    def forward(self,x,mask=None):        
+        atten_out = self.subLayer1(x,self.multi_head_attention(x, x, x, mask))
         return self.sublayer2(atten_out,self.position_wise_FeedForward(atten_out))
         # 返回encoder out (B,seq_len,d_model)
 # Encoder
 class EncoderBlock(nn.Module):
-    def __init__(self, encoder_layer, N):
+    def __init__(self, encoder_layer, N=6):
         super().__init__()
+        self.encoder_layer = encoder_layer
         self.layers = clones(encoder_layer,N)
     def forward(self,x,mask):
+        enc_out = x
         for layer in self.layers:
-            x = layer(x,mask)
-        return x
+            enc_out = layer(enc_out,mask)
+        return enc_out
 # sublayer for decoder
 class DecoderLayer(nn.Module):
-    def __init__(self, multi_head_attention,Position_wise_FeedForward,d_model=512,dropout_rate = 0.1) ->None:
+    def __init__(self, multi_head_attention,Position_wise_FeedForward,d_model=512,dropout_rate = 0.2) ->None:
         super().__init__()
         self.d_model = d_model
         self.decoder_attention = copy.deepcopy(multi_head_attention)
@@ -162,6 +156,7 @@ class DecoderLayer(nn.Module):
 class DecoderBlock(nn.Module):
     def __init__(self, decoder_layer,N):
         super().__init__()
+        self.decoder_layer = decoder_layer
         self.layers = clones(decoder_layer,N)
         
     def forward(self,enc,dec,src_mask=None,trg_mask=None):
@@ -186,18 +181,19 @@ class Transformers(nn.Module):
         self.d_model = d_model
         self.num_head = num_head
         
-        self.src_embedding = Embeddings(src_seq_len,d_model)
-        self.src_pe = PositionEmbeddings(src_seq_len,dropout_rate,d_model)
-        self.trg_embedding = Embeddings(trg_seq_len,d_model)
-        self.trg_pe = PositionEmbeddings(trg_seq_len,dropout_rate,d_model)
+        self.src_embedding = Embeddings(self.src_seq_len,self.d_model)
+        self.src_pe = PositionEmbeddings(self.src_seq_len,self.d_model)
+        self.trg_embedding = Embeddings(self.trg_seq_len,self.d_model)
+        self.trg_pe = PositionEmbeddings(self.trg_seq_len,self.d_model)
         self.multi_head_attention = MultiHeadAttention(d_model,num_head,dropout_rate)
-        self.position_wise_feedforward = PositionwiseFeedForward(d_model=d_model,dropout_rate=dropout_rate)
+        self.position_wise_feedforward = PositionwiseFeedForward(d_model=d_model,hidden_dim=2048,dropout_rate=dropout_rate)
         self.encoder_layer = EncoderLayer(self.multi_head_attention,self.position_wise_feedforward,d_model,dropout_rate)
         self.encoder_block = EncoderBlock(self.encoder_layer,N=6)
         self.decoder_layer = DecoderLayer(self.multi_head_attention,self.position_wise_feedforward,d_model,dropout_rate)
         self.decoder_block = DecoderBlock(self.decoder_layer,N=6)
         
         self.decoder_out = DecoderGenerator(d_model,trg_seq_len)
+
     def forward(self,src_token_id,trg_token_id,src_mask=None,trg_mask=None):
         encoder_out = self.encode(src_token_id,src_mask)
         decoder_out = self.decode(encoder_out,trg_token_id,src_mask,trg_mask)
@@ -224,8 +220,8 @@ def get_trg_mask(trg_token_ids_batch,pad_tok_id):
     batch_size = trg_token_ids_batch.size()[0]
     seq_len = trg_token_ids_batch.size()[1]
     trg_pad_mask = (trg_token_ids_batch!=pad_tok_id).view(batch_size, 1, 1,-1) #SIZE = (BS,1,1,T)
-    # 创建目标序列的 look ahead mask（上三角矩阵）
-    trg_look_forward = torch.triu(torch.ones(1, 1, seq_len, seq_len, device=trg_token_ids_batch.device), diagonal=1).to(torch.bool)
+    trg_look_forward = torch.triu(torch.ones((1,1,seq_len,seq_len),dtype=torch.int16)).transpose(2,3).type(torch.bool)
+
     trg_mask = trg_pad_mask & trg_look_forward
     return trg_mask
 if __name__ == "__main__":

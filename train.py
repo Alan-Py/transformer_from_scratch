@@ -68,7 +68,7 @@ def evaluate(model, dataloader,src_rev_vocab, tgt_rev_vocab,device=None, max_len
     
     with torch.no_grad():
         with tqdm(dataloader, unit="batch", desc="eval") as pbar:
-            for i, (en_batch, de_batch) in enumerate(pbar):
+            for i, (src_batch, tgt_batch) in enumerate(pbar):
                 src_batch = src_batch.to(device)
                 tgt_batch = tgt_batch.to(device)
                 generated_batch = []
@@ -85,7 +85,7 @@ def evaluate(model, dataloader,src_rev_vocab, tgt_rev_vocab,device=None, max_len
                 # Add the generated batch to the results
                 generated_translations.extend(generated_batch)
                 # Add the reference (target) translations
-                for tgt_sentence in de_batch:
+                for tgt_sentence in tgt_batch:
                     tgt_sentence = tgt_sentence.cpu().numpy().tolist()
                     tgt_text = [tgt_rev_vocab.get(idx, '<unk>') for idx in translated_sentence if idx != PAD_IDX]
                     reference_translations.append(bpe_decode(tgt_text))
