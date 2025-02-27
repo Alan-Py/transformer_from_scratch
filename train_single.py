@@ -114,19 +114,19 @@ def train(model, train_loader, optimizer, criterion, num_epochs=10,eval_loader=N
 
                 # 生成src和trg的mask
                 src_mask = get_src_mask(src, src_pad_id).to(device)  # 获取源序列mask
-                trg_mask = get_trg_mask(tgt_token_ids_batch_input.to(device), tgt_pad_id).to(device)  # 获取目标序列mask
+                trg_mask = get_trg_mask(tgt_token_ids_batch_input, tgt_pad_id).to(device)  # 获取目标序列mask
                 src = src.to(device)
                 tgt = tgt.to(device)
                 optimizer.zero_grad()
                 
                 # 获取模型的输出
-                output = model(src, tgt_token_ids_batch_input, src_mask, trg_mask)  # 去掉目标序列的最后一位用于输入
+                output = model(src, tgt_token_ids_batch_input.to(device), src_mask, trg_mask)  # 去掉目标序列的最后一位用于输入
                 # 计算损失
                 loss = criterion(output.contiguous().view(-1, output.size(-1)), tgt[:, 1:].contiguous().view(-1))  # 忽略<start> token
                 loss.backward()
-                for name,param in model.named_parameters():
-                    if param.grad is None:
-                        print(name)
+                # for name,param in model.named_parameters():
+                #     if param.grad is None:
+                #         print(name)
                 optimizer.step()
                 
                 total_loss += loss.item()
@@ -207,6 +207,10 @@ if __name__ == "__main__":
         tgt_vocab, tgt_rev_vocab = load_vocab('./dictionary/tgt_vocab.pkl', './dictionary/tgt_rev_vocab.pkl')
         src_pad_id = src_vocab[PAD_TOKEN]  # 获取源语言的 padding token id
         tgt_pad_id = tgt_vocab[PAD_TOKEN]  # 获取目标语言的 padding token id
+        print(dict(list(src_vocab.items())[:10]))
+        print(dict(list(src_rev_vocab.items())[:10]))
+        print(dict(list(tgt_vocab.items())[:10]))
+        print(dict(list(tgt_rev_vocab.items())[:10]))
 
     print("loaded")
 
@@ -228,7 +232,7 @@ if __name__ == "__main__":
             nn.init.xavier_uniform_(p)
     print(f'The model has {count_parameters(model):,} trainable parameters')
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.98), eps=1e-9)
     criterion = torch.nn.CrossEntropyLoss(ignore_index=tgt_vocab[PAD_TOKEN])
    
 
